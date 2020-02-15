@@ -1,21 +1,27 @@
 import numpy as np
 import pygame
 import math
+import copy
 
 
 class Agent:
 
-    def __init__(self, experience='', agent=False):
+    def __init__(self, w, h, experience='', agent=False):
         self.agent = agent
+        self.w = w
+        self.h = h
         if agent:
-            self.policy, self.value_function = np.load(experience)
+            if experience:
+                self.policy = copy.deepcopy()
+            else:
+                self.policy = Policy(w, h)
 
         self.wallet = 0  # sum of rewards
         self.score = 0  # score in a dots and boxes match
         self.action = 0  # next action
 
-    def choose_action(self, state):
-        self.action = self.policy(state)
+    def choose_action(self, state_vector):
+        self.action = self.policy.distribution[state_vector[0], state_vector[1]].generate()
 
 
 class Game:
@@ -41,7 +47,6 @@ class Game:
 
         if self.graphics:
             self.board = Board(self)
-
 
     def episode(self):  # player1 and player2 play n matches of dots and boxes
 
@@ -124,14 +129,13 @@ class Game:
 
         return score
 
-    def enumerate_states(self):
-
 
 def enumerate(array):
     h = np.size(array, axis=0)
     w = np.size(array, axis=1)
     enumerator_matrix = np.load('enumerator_matrix.npy')
     return np.sum(array * enumerator_matrix[:h, :w])
+
 
 def matrix_form(num, a, b):
     array = np.ndarray((a, b), dtype='int')
@@ -326,11 +330,22 @@ class Board:
 class Distribution:
 
     def __init__(distr, state):
-        h0 = np.size(state[0], axis=1)
-        w0 = np.size(state[0], axis=0)
-        h1 = np.size(state[0], axis=1)
-        w1 = np.size(state[0], axis=0)
-        distr.p =   # (h, i, j)
+        distr.state = state
+        distr.h = [np.size(state[0], axis=1), np.size(state[1], axis=1)]
+        distr.w = [np.size(state[0], axis=0), np.size(state[0], axis=0)]
+        distr.p = []
+        distr.action_space = []
+
+    def initialize(distr):
+        for h in range(2):
+            for i in range(distr.h[h]):
+                for j in range(distr.w[h]):
+                    distr.action_space.append((h, i, j))
+                    s = 0
+                    if distr.state[h][i, j] == 0:
+                        s = 1
+                    distr.p.append(s)
+
         distr.normalize()
 
     def normalize(distr):
@@ -339,11 +354,7 @@ class Distribution:
 
     def generate(distr):
         s = np.random.choice(np.size(distr.p), p=distr.p)
-        if s >= distr.h_array_len:
-            return [distr.h_state_num, distr.v_state_num + s - distr.h_array_len]
-
-        else:
-            return [distr.h_state_num + s, distr.v_state_num]
+        return distr.action_space[s]
 
 
 class Policy:
@@ -352,11 +363,16 @@ class Policy:
         policy.w = w
         policy.h = h
         policy.terminal_state_vector = [enumerate(np.ones(h, w-1)), enumerate(np.ones(h-1, w))]
-        policy.distribution = []
+        policy.distribution = np.ndarray((policy.terminal_state_vector[0], policy.terminal_state_vector[1]),
+                                         dtype=object)
+
+    def initialize(policy):
 
         for i in range(policy.terminal_state_vector[0]):
             for j in range(policy.terminal_state_vector[1]):
-                policy.distribution.append(distribution())
+
+                policy.distribution[i, j] = Distribution([matrix_form(i, policy.h, policy.w-1),
+                                                         matrix_form(j, policy.h-1, policy.w)])
 
 '''
 w = 4
