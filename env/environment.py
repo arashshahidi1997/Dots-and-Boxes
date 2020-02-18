@@ -123,8 +123,13 @@ class Game:
                     reward = -reward
 
             t2, s2 = self.state_index()
-            if s2 == len(self.reduced_index_list)
-            self.p[0].Q[s0, a0] += self.p[0].alpha * (reward + self.p[0].gamma * max(self.p[0].Q[s2][np.where(self.reduced_vector != 1)]) - self.p[0].Q[s0, a0])
+
+            if s2 == len(self.reduced_index_list) - 1:
+                m = 0
+            else:
+                m = max(self.p[0].Q[s2][np.where(self.reduced_vector != 1)])
+
+            self.p[0].Q[s0, a0] += self.p[0].alpha * (reward + self.p[0].gamma * m - self.p[0].Q[s0, a0])
             self.p[1].Q = self.p[0].Q
             s0 = s1
             t0 = t1
