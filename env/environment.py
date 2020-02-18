@@ -1,11 +1,10 @@
 import numpy as np
 import math
-import copy
 
 
 class Agent:
 
-    def __init__(self, w, h, experience='', agent=True, alpha=1, gamma=1, epsilon=0.1):
+    def __init__(self, w, h, experience='', agent=True, alpha=0.5, gamma=0.8, epsilon=0.1):
         self.agent = agent
         self.w = w
         self.h = h
@@ -28,9 +27,7 @@ class Agent:
     def choose_action(self, s, reduced_vector):  # epsilon-greedily
 
         invalid_index = np.where(reduced_vector == 1)
-        print('invalid', invalid_index)
         self.Q[s, invalid_index] = min(self.Q[s])-1
-        print("Q"+str(s), self.Q[s])
 
         if np.random.rand() < self.epsilon:
             a_index = np.where(reduced_vector != 1)[0]
@@ -82,10 +79,6 @@ class Game:
         self.p[1].score = 0
         reward = 0
 
-        print(self.reduced_index_list)
-        for i in self.reduced_index_list:
-            print(matrix_form(vectorize(i, self.dim), self.h, self.w))
-
         t0, s0 = self.state_index()
 
         if not self.p[self.turn].agent:
@@ -95,7 +88,7 @@ class Game:
             a0 = self.p[self.turn].action
             choice = self.action(a0, t0)  # choose action
 
-        self.info(choice)
+        # self.info(choice)
 
         self.p[self.turn].score += self.move(choice)
 
@@ -113,24 +106,27 @@ class Game:
                 a1 = self.p[self.turn].action
                 choice = self.action(a1, t1)  # choose action
 
-            self.info(choice)
+            # self.info(choice)
 
             self.p[self.turn].score += self.move(choice)
+
+            t2, s2 = self.state_index()
 
             if self.terminal_state:
                 reward = self.reward()
                 if self.turn != 0:
                     reward = -reward
 
-            t2, s2 = self.state_index()
-
-            if s2 == len(self.reduced_index_list) - 1:
                 m = 0
+
             else:
                 m = max(self.p[0].Q[s2][np.where(self.reduced_vector != 1)])
 
+            print('before:', self.p[0].Q[s0, a0])
             self.p[0].Q[s0, a0] += self.p[0].alpha * (reward + self.p[0].gamma * m - self.p[0].Q[s0, a0])
             self.p[1].Q = self.p[0].Q
+            print('after', self.p[0].Q[s0, a0])
+
             s0 = s1
             t0 = t1
             s1 = s2
@@ -138,6 +134,8 @@ class Game:
 
             if not self.extra_turn:
                 self.turn = 1 - self.turn
+
+        # self.info(choice)
 
     def reward(self):
         reward = 0
@@ -213,8 +211,35 @@ class Game:
 
     def index(self):
         if self.new:
-            for i in range(self.terminal_index + 1):
-                self.index_list[i] = Symmetry(matrix_form(vectorize(i, self.dim), self.h, self.w), self.h==self.w)
+            s_list = range(self.terminal_index + 1)
+
+            m = 4
+            if self.h == self.w:
+                m = 8
+
+            while s_list:
+                array_list = matrix_form(vectorize(s_list[0], self.dim), self.h, self.w)
+                v = []
+
+                for i in range(m):
+                    v.append(enumerate(vector_form(transformation[i](array_list))))
+
+                v_f = min(v)
+                v_f_complement = self.terminal_index - max(v)
+                t_f_complement = np.argmax(v)
+                v_set = set(v)
+
+                for x in v_set:
+                    y = self.terminal_index - x
+                    if x in s_list:
+                        s_list.remove(x)
+
+                    if y in s_list:
+                        s_list.remove(y)
+
+                    t = v.index(x)
+                    self.index_list[x] = [v_f, t]
+                    self.index_list[y] = [v_f_complement, multiply[t, inverse[t_f_complement]]]
 
             np.save('index_list' + str(self.h) + '_' + str(self.w) + '.npy', self.index_list)
 
@@ -230,7 +255,7 @@ class Game:
         v = np.zeros(self.dim, dtype='int')
         v[a] = 1
         arr_list = matrix_form(v, self.h, self.w)
-        h_arr, v_arr = transformation[inverse[t]](arr_list)
+        h_arr, v_arr = transformation[t](arr_list)
         if np.sum(h_arr) == 1:
             h = 0
             i, j = np.where(h_arr == 1)
@@ -319,22 +344,14 @@ def Symmetry_Group():
 
 transformation = Symmetry_Group()
 inverse = [0, 1, 2, 3, 4, 5, 7, 6]
-
-
-def Symmetry(array_list, square):
-
-    v = []
-    k = 4
-
-    if square:
-        k = 8
-
-    for i in range(k):
-        v.append(enumerate(vector_form(transformation[i](array_list))))
-
-    v_f = min(v)
-    t = np.argmin(v)
-    return [v_f, t]
+multiply = np.array([[0, 1, 2, 3, 4, 5, 6, 7],
+                     [1, 0, 3, 2, 6, 7, 4, 5],
+                     [2, 3, 0, 1, 7, 6, 5, 4],
+                     [3, 2, 1, 0, 5, 4, 7, 6],
+                     [4, 7, 6, 5, 0, 3, 2, 1],
+                     [5, 6, 7, 4, 3, 0, 1, 2],
+                     [6, 5, 4, 7, 1, 2, 3, 0],
+                     [7, 4, 5, 6, 2, 1, 0, 3]])
 
 
 class Board:
@@ -523,7 +540,6 @@ def Q_learning(theta, w, h):
     print("Agents are ready")
     game = Game(w, h, p1, p2)
     print("Game is set")
-    print(game.index_list)
     p1.reduced_index_list = game.reduced_index_list
     p2.reduced_index_list = game.reduced_index_list
     Q = np.ones((len(game.reduced_index_list), game.dim))
@@ -532,16 +548,17 @@ def Q_learning(theta, w, h):
     epsiode_counter = 0
 
     try:
-        while epsiode_counter < 1:
-            q = Q
+        while epsiode_counter < 10:
+            q = p1.Q
             game.episode()
             epsiode_counter += 1
             if epsiode_counter % 1 == 0:
-                print(epsiode_counter)
+                print('round',epsiode_counter)
 
-            Delta = np.max(p1.Q - q)
-            print(Delta)
+            Delta = np.max(abs(p1.Q - q))
+            print('delta:', Delta)
             if Delta < theta:
+                print('converged')
                 break
 
     except KeyboardInterrupt:
@@ -550,13 +567,11 @@ def Q_learning(theta, w, h):
     return p1.Q
 
 
+w = 2
+h = 3
 try:
-    Q = Q_learning(0.1, 2, 2)
-    np.save('action_value_function.npy', Q)
+    Q = Q_learning(0.1, w, h)
+    np.save('action_value_function'+str(h)+'-'+str(w)+'.npy', Q)
 
 except KeyboardInterrupt:
     np.save('action_value_function.npy', Q)
-
-'''  
-update rule must be applied to two successive states experienced by one agent
-'''
