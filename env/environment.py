@@ -1,40 +1,68 @@
 import numpy as np
-import pygame
 import math
 import copy
 
 
 class Agent:
 
-    def __init__(self, w, h, experience='', agent=False):
+    def __init__(self, w, h, experience='', agent=True, alpha=1, gamma=1, epsilon=0.1):
         self.agent = agent
         self.w = w
         self.h = h
-        if agent:
-            if experience:
-                self.policy = copy.deepcopy()
-            else:
-                self.policy = Policy(w, h)
+        #if agent:
+        #    if experience:
+        #        self.policy = copy.deepcopy()
+        #    else:
+        #        self.policy = Policy(w, h)
 
         self.wallet = 0  # sum of rewards
         self.score = 0  # score in a dots and boxes match
-        self.action = 0  # next action
+        self.action = 0  # action
+        self.Q = 0
+        self.reduced_index_list = 0
 
-    def choose_action(self, state_vector):
-        self.action = self.policy.distribution[state_vector[0], state_vector[1]].generate()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+
+    def choose_action(self, s, reduced_vector):  # epsilon-greedily
+
+        invalid_index = np.where(reduced_vector == 1)
+        print('invalid', invalid_index)
+        self.Q[s, invalid_index] = min(self.Q[s])-1
+        print("Q"+str(s), self.Q[s])
+
+        if np.random.rand() < self.epsilon:
+            a_index = np.where(reduced_vector != 1)[0]
+        else:
+            a_index = np.where(self.Q[s] == np.max(self.Q[s]))[0]
+
+        self.action = a_index[np.random.randint(np.alen(a_index))]
 
 
 class Game:
 
-    def __init__(self, w, h, player1, player2, graphics=False):
+    def __init__(self, w, h, player1, player2, graphics=False, new=True):
+        self.new = new
         self.w = w
         self.h = h
+        self.dim = h * (w-1) + (h-1) * w
+
         self.total_score = (w-1) * (h-1)
         self.half_score = (w-1) * (h-1) / 2
-        self.p = [player1, player2]
-        self.state = [np.zeros((h, w - 1), dtype='int'), np.zeros((h - 1, w), dtype='int')]
-        self.boxes = 2 * np.ones((h-1, w-1), dtype='int')
 
+        self.p = [player1, player2]
+
+        self.state = [np.zeros((h, w - 1), dtype='int'), np.zeros((h - 1, w), dtype='int')]
+        self.vector = vector_form(self.state)
+        self.reduced_vector = vectorize(0, self.dim)
+        self.terminal_vector = np.ones(self.dim, dtype='int')
+        self.terminal_index = enumerate(self.terminal_vector)
+        self.index_list = np.ndarray((self.terminal_index + 1, 2), dtype='int')
+        self.index()
+        self.reduced_index_list = list(set(self.index_list[:, 0]))
+
+        self.boxes = 2 * np.ones((h-1, w-1), dtype='int')
         self.turn = 0   # players indices
         self.scored = 0
         self.terminal_state = False
@@ -50,21 +78,69 @@ class Game:
 
     def episode(self):  # player1 and player2 play n matches of dots and boxes
 
+        self.p[0].score = 0
+        self.p[1].score = 0
+        reward = 0
+
+        print(self.reduced_index_list)
+        for i in self.reduced_index_list:
+            print(matrix_form(vectorize(i, self.dim), self.h, self.w))
+
+        t0, s0 = self.state_index()
+
+        if not self.p[self.turn].agent:
+            choice = self.board.choose_action()
+        else:
+            self.p[self.turn].choose_action(s0, self.reduced_vector)
+            a0 = self.p[self.turn].action
+            choice = self.action(a0, t0)  # choose action
+
+        self.info(choice)
+
+        self.p[self.turn].score += self.move(choice)
+
+        if not self.extra_turn:
+            self.turn = 1 - self.turn
+
+        t1, s1 = self.state_index()
+
         while not self.terminal_state:
+
             if not self.p[self.turn].agent:
                 choice = self.board.choose_action()
-                self.p[self.turn].score += self.move(choice=choice)
             else:
-                self.p[self.turn].score += self.move()
+                self.p[self.turn].choose_action(s1, self.reduced_vector)
+                a1 = self.p[self.turn].action
+                choice = self.action(a1, t1)  # choose action
+
+            self.info(choice)
+
+            self.p[self.turn].score += self.move(choice)
+
+            if self.terminal_state:
+                reward = self.reward()
+                if self.turn != 0:
+                    reward = -reward
+
+            t2, s2 = self.state_index()
+            if s2 == len(self.reduced_index_list)
+            self.p[0].Q[s0, a0] += self.p[0].alpha * (reward + self.p[0].gamma * max(self.p[0].Q[s2][np.where(self.reduced_vector != 1)]) - self.p[0].Q[s0, a0])
+            self.p[1].Q = self.p[0].Q
+            s0 = s1
+            t0 = t1
+            s1 = s2
+            t1 = t2
 
             if not self.extra_turn:
                 self.turn = 1 - self.turn
 
+    def reward(self):
         reward = 0
 
         if self.p[0].score > self.half_score:
             reward = 1
-            self.board.didiwin = True
+            if self.graphics:
+                self.board.didiwin = True
 
         elif self.p[0].score < self.half_score:
             reward = -1
@@ -72,17 +148,18 @@ class Game:
         self.p[0].wallet += reward
         self.p[1].wallet -= reward
 
-        self.board.finished()
+        if self.graphics:
+            self.board.finished()
 
-    def move(self, choice=[]):
+        return reward
+
+    def move(self, choice):
         score = 0
         self.extra_turn = False
-        if self.p[self.turn].agent:
-            h, x, y = self.p[self.turn].choose_action(self.state)   # choose action
-        else:
-            h, x, y = choice
+        h, x, y = choice
 
-        self.state[h][x, y] = 1     # update state
+        self.state[h][x, y] = 1  # update state
+        self.vector = vector_form(self.state)
 
         if h == 0:
 
@@ -129,22 +206,130 @@ class Game:
 
         return score
 
+    def index(self):
+        if self.new:
+            for i in range(self.terminal_index + 1):
+                self.index_list[i] = Symmetry(matrix_form(vectorize(i, self.dim), self.h, self.w), self.h==self.w)
 
-def enumerate(array):
-    h = np.size(array, axis=0)
-    w = np.size(array, axis=1)
-    enumerator_matrix = np.load('enumerator_matrix.npy')
-    return np.sum(array * enumerator_matrix[:h, :w])
+            np.save('index_list' + str(self.h) + '_' + str(self.w) + '.npy', self.index_list)
+
+        else:
+            self.index_list = np.load('index_list' + str(self.h) + '_' + str(self.w) + '.npy')
+
+    def state_index(self):
+        s, t = self.index_list[enumerate(self.vector)]
+        self.reduced_vector = vectorize(s, self.dim)
+        return t, self.reduced_index_list.index(s)
+
+    def action(self, a, t):
+        v = np.zeros(self.dim, dtype='int')
+        v[a] = 1
+        arr_list = matrix_form(v, self.h, self.w)
+        h_arr, v_arr = transformation[inverse[t]](arr_list)
+        if np.sum(h_arr) == 1:
+            h = 0
+            i, j = np.where(h_arr == 1)
+            x = i[0]
+            y = j[0]
+        else:
+            h = 1
+            i, j = np.where(v_arr == 1)
+            x = i[0]
+            y = j[0]
+
+        return h, x, y
+
+    def info(self, choice):
+        print('state_array:', self.state)
+        print('state_vector:', self.vector)
+        print('reduced_state_vector:', self.reduced_vector)
+        print('scores:', self.p[0].score, self.p[1].score)
+        print('scored:', self.scored)
+        print('turn and action:', self.turn, self.p[self.turn].action)
+        print('choice', choice)
 
 
-def matrix_form(num, a, b):
-    array = np.ndarray((a, b), dtype='int')
-    k = 1
-    for i in range(a):
-        for j in range(b):
-            array[i, j] = bin(num)[-k]
-            k += 1
-    return array
+def enumerate(vector):
+    return int("".join(str(v) for v in vector), 2)
+
+
+def vectorize(num, dim):
+    vector = np.zeros(dim, dtype='int')
+    v = np.array([int(s) for s in bin(num)[2:]])
+    vector[dim - np.size(v):] = v
+    return vector
+
+
+def vector_form(array_list):
+    return np.concatenate((np.concatenate(array_list[0]), np.concatenate(array_list[1])))
+
+
+def matrix_form(vector, h, w):
+    a = h * (w-1)
+    vector_list = [vector[:a], vector[a:]]
+    array_list = [np.ndarray((h, w-1), dtype='int'), np.ndarray((h-1, w), dtype='int')]
+
+    for i in range(w-1):
+        array_list[0][:, i] = vector_list[0][i::(w-1)]
+
+    for j in range(w):
+        array_list[1][:, j] = vector_list[1][j::w]
+
+    return array_list
+
+
+def Symmetry_Group():
+
+    # identit
+    def id(arr_list):
+        return arr_list
+
+    # horizontal symmetry
+    def hor(arr_list):
+        return [arr_list[0][:, ::-1], arr_list[1][:, ::-1]]
+
+    # vertical symmetry
+    def ver(arr_list):
+        return [arr_list[0][::-1], arr_list[1][::-1]]
+
+    # 180 degree rotation:
+    def r180(arr_list):
+        return [arr_list[0][::-1, ::-1], arr_list[1][::-1, ::-1]]
+
+    # diagonal symmetry if w = h
+    def d1(arr_list):
+        return [np.transpose(arr_list[1][::-1, ::-1]), np.transpose(arr_list[0][::-1, ::-1])]
+
+    def d2(arr_list):
+        return [np.transpose(arr_list[1]), np.transpose(arr_list[0])]
+
+    def r90(arr_list):
+        return [np.transpose(arr_list[1])[::-1], np.transpose(arr_list[0])[::-1]]
+
+    def r270(arr_list):
+        return [np.transpose(arr_list[1])[:, ::-1], np.transpose(arr_list[0])[:, ::-1]]
+
+    return [id, hor, ver, r180, d1, d2, r90, r270]
+
+
+transformation = Symmetry_Group()
+inverse = [0, 1, 2, 3, 4, 5, 7, 6]
+
+
+def Symmetry(array_list, square):
+
+    v = []
+    k = 4
+
+    if square:
+        k = 8
+
+    for i in range(k):
+        v.append(enumerate(vector_form(transformation[i](array_list))))
+
+    v_f = min(v)
+    t = np.argmin(v)
+    return [v_f, t]
 
 
 class Board:
@@ -327,58 +512,46 @@ class Board:
             pygame.display.flip()
 
 
-class Distribution:
+def Q_learning(theta, w, h):
+    p1 = Agent(w, h)
+    p2 = Agent(w, h)
+    print("Agents are ready")
+    game = Game(w, h, p1, p2)
+    print("Game is set")
+    print(game.index_list)
+    p1.reduced_index_list = game.reduced_index_list
+    p2.reduced_index_list = game.reduced_index_list
+    Q = np.ones((len(game.reduced_index_list), game.dim))
+    p1.Q = Q
+    p2.Q = Q
+    epsiode_counter = 0
 
-    def __init__(distr, state):
-        distr.state = state
-        distr.h = [np.size(state[0], axis=1), np.size(state[1], axis=1)]
-        distr.w = [np.size(state[0], axis=0), np.size(state[0], axis=0)]
-        distr.p = []
-        distr.action_space = []
+    try:
+        while epsiode_counter < 1:
+            q = Q
+            game.episode()
+            epsiode_counter += 1
+            if epsiode_counter % 1 == 0:
+                print(epsiode_counter)
 
-    def initialize(distr):
-        for h in range(2):
-            for i in range(distr.h[h]):
-                for j in range(distr.w[h]):
-                    distr.action_space.append((h, i, j))
-                    s = 0
-                    if distr.state[h][i, j] == 0:
-                        s = 1
-                    distr.p.append(s)
+            Delta = np.max(p1.Q - q)
+            print(Delta)
+            if Delta < theta:
+                break
 
-        distr.normalize()
+    except KeyboardInterrupt:
+        np.save('action_value_function.npy', Q)
 
-    def normalize(distr):
-        distr.p = np.concatenate((distr.h_array, distr.v_array))
-        distr.p = distr.p / np.sum(distr.p)
-
-    def generate(distr):
-        s = np.random.choice(np.size(distr.p), p=distr.p)
-        return distr.action_space[s]
+    return p1.Q
 
 
-class Policy:
+try:
+    Q = Q_learning(0.1, 2, 2)
+    np.save('action_value_function.npy', Q)
 
-    def __init__(policy, w, h):
-        policy.w = w
-        policy.h = h
-        policy.terminal_state_vector = [enumerate(np.ones(h, w-1)), enumerate(np.ones(h-1, w))]
-        policy.distribution = np.ndarray((policy.terminal_state_vector[0], policy.terminal_state_vector[1]),
-                                         dtype=object)
+except KeyboardInterrupt:
+    np.save('action_value_function.npy', Q)
 
-    def initialize(policy):
-
-        for i in range(policy.terminal_state_vector[0]):
-            for j in range(policy.terminal_state_vector[1]):
-
-                policy.distribution[i, j] = Distribution([matrix_form(i, policy.h, policy.w-1),
-                                                         matrix_form(j, policy.h-1, policy.w)])
-
-'''
-w = 4
-h = 4
-p1 = Agent()
-p2 = Agent()
-game = Game(w, h, p1, p2)
-game.episode()
+'''  
+update rule must be applied to two successive states experienced by one agent
 '''
