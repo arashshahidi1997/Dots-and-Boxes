@@ -1,5 +1,7 @@
 import numpy as np
 import math
+import pygame
+import time
 
 
 class Agent:
@@ -8,33 +10,49 @@ class Agent:
         self.agent = agent
         self.w = w
         self.h = h
-        #if agent:
-        #    if experience:
-        #        self.policy = copy.deepcopy()
-        #    else:
-        #        self.policy = Policy(w, h)
 
         self.wallet = 0  # sum of rewards
         self.score = 0  # score in a dots and boxes match
         self.action = 0  # action
+        self.state = 0
+        self.previous_action = 0
+        self.previous_state = 0
         self.Q = 0
         self.reduced_index_list = 0
+
+        if agent:
+            if experience:
+                self.Q = np.load(experience)
+
+            else:
+                self.Q = 0
 
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
 
-    def choose_action(self, s, reduced_vector):  # epsilon-greedily
-
+    def choose_action(self, reduced_vector):  # epsilon-greedily
+        s = self.state
         invalid_index = np.where(reduced_vector == 1)
-        self.Q[s, invalid_index] = min(self.Q[s])-1
-
+        self.Q[s, invalid_index] = -10
         if np.random.rand() < self.epsilon:
             a_index = np.where(reduced_vector != 1)[0]
         else:
             a_index = np.where(self.Q[s] == np.max(self.Q[s]))[0]
 
-        self.action = a_index[np.random.randint(np.alen(a_index))]
+        self.previous_state = s
+        self.previous_action = self.action
+        self.action = a_index[np.random.randint(len(a_index))]
+
+    def update_rule(self, reward, m):
+        s0 = self.previous_state
+        a0 = self.previous_action
+        print(s0, a0)
+        self.Q[s0, a0] += self.alpha * (reward + self.gamma * m - self.Q[s0, a0])
+        print('next')
+        
+    def target(self, reduced_vector):
+        return max(self.Q[self.state][np.where(reduced_vector != 1)])
 
 
 class Game:
@@ -49,10 +67,12 @@ class Game:
         self.half_score = (w-1) * (h-1) / 2
 
         self.p = [player1, player2]
+        self.learning = player1.agent or player2.agent
 
         self.state = [np.zeros((h, w - 1), dtype='int'), np.zeros((h - 1, w), dtype='int')]
         self.vector = vector_form(self.state)
         self.reduced_vector = vectorize(0, self.dim)
+
         self.terminal_vector = np.ones(self.dim, dtype='int')
         self.terminal_index = enumerate(self.terminal_vector)
         self.index_list = np.ndarray((self.terminal_index + 1, 2), dtype='int')
@@ -73,44 +93,62 @@ class Game:
         if self.graphics:
             self.board = Board(self)
 
-    def episode(self):  # player1 and player2 play n matches of dots and boxes
-
+    def initialize_episode(self):
         self.p[0].score = 0
         self.p[1].score = 0
+
+        self.state = [np.zeros((h, w - 1), dtype='int'), np.zeros((h - 1, w), dtype='int')]
+        self.vector = vector_form(self.state)
+        self.reduced_vector = vectorize(0, self.dim)
+
+        self.boxes = 2 * np.ones((h-1, w-1), dtype='int')
+        self.turn = 0   # players indices
+        self.scored = 0
+        self.terminal_state = False
+        self.extra_turn = False
+
+    def episode(self):  # player1 and player2 play n matches of dots and boxes
+        self.initialize_episode()
         reward = 0
 
-        t0, s0 = self.state_index()
+        t0, self.p[self.turn].state = self.state_index()
 
         if not self.p[self.turn].agent:
             choice = self.board.choose_action()
+
         else:
-            self.p[self.turn].choose_action(s0, self.reduced_vector)
-            a0 = self.p[self.turn].action
-            choice = self.action(a0, t0)  # choose action
+            self.p[self.turn].choose_action(self.reduced_vector)
+            choice = self.action(self.p[self.turn].action, t0)  # choose action
 
         # self.info(choice)
+        if self.graphics:
+            self.board.draw()
 
         self.p[self.turn].score += self.move(choice)
 
-        if not self.extra_turn:
-            self.turn = 1 - self.turn
+        self.turn = 1 - self.turn
 
-        t1, s1 = self.state_index()
+        t, self.p[self.turn].state = self.state_index()
 
         while not self.terminal_state:
+            if self.graphics:
+                self.board.draw()
+                time.sleep(1)
 
             if not self.p[self.turn].agent:
                 choice = self.board.choose_action()
-            else:
-                self.p[self.turn].choose_action(s1, self.reduced_vector)
-                a1 = self.p[self.turn].action
-                choice = self.action(a1, t1)  # choose action
 
-            # self.info(choice)
+            else:
+                self.p[self.turn].choose_action(self.reduced_vector)
+                choice = self.action(self.p[self.turn].action, t)  # choose action
+                # self.info(choice)
 
             self.p[self.turn].score += self.move(choice)
 
-            t2, s2 = self.state_index()
+            if not self.extra_turn:
+                self.turn = 1 - self.turn
+
+            t, self.p[self.turn].state = self.state_index()
 
             if self.terminal_state:
                 reward = self.reward()
@@ -119,22 +157,16 @@ class Game:
 
                 m = 0
 
-            else:
-                m = max(self.p[0].Q[s2][np.where(self.reduced_vector != 1)])
+            elif self.learning:
+                m = self.p[self.turn].target(self.reduced_vector)
 
-            print('before:', self.p[0].Q[s0, a0])
-            self.p[0].Q[s0, a0] += self.p[0].alpha * (reward + self.p[0].gamma * m - self.p[0].Q[s0, a0])
-            self.p[1].Q = self.p[0].Q
-            print('after', self.p[0].Q[s0, a0])
-
-            s0 = s1
-            t0 = t1
-            s1 = s2
-            t1 = t2
-
-            if not self.extra_turn:
-                self.turn = 1 - self.turn
-
+            if self.p[self.turn].agent:
+                print(self.p[0].Q)
+                self.p[self.turn].update_rule(reward, m)
+                s0 = self.p[self.turn].previous_state
+                a0 = self.p[self.turn].previous_action
+                self.p[1 - self.turn].Q[s0, a0] = self.p[self.turn].Q[s0, a0]
+                print(self.p[0].Q)
         # self.info(choice)
 
     def reward(self):
@@ -211,7 +243,7 @@ class Game:
 
     def index(self):
         if self.new:
-            s_list = range(self.terminal_index + 1)
+            s_list = list(range(self.terminal_index + 1))
 
             m = 4
             if self.h == self.w:
@@ -522,10 +554,23 @@ class Board:
             # update the screen
             pygame.display.flip()
 
+    def draw(board):
+        board.clock.tick(60)
+
+        # clear the screen
+        board.screen.fill(0)
+
+        # draw the board
+        board.drawBoard()
+        board.drawHUD()
+        board.drawOwnermap()
+
+        pygame.display.flip()
+
     def finished(board):
         board.drawBoard()
         board.drawHUD()
-        board.draw0Ownermap()
+        board.drawOwnermap()
         board.screen.blit(board.gameover if not board.didiwin else board.winningscreen, (0, 0))
         while 1:
             for event in pygame.event.get():
@@ -543,35 +588,31 @@ def Q_learning(theta, w, h):
     p1.reduced_index_list = game.reduced_index_list
     p2.reduced_index_list = game.reduced_index_list
     Q = np.ones((len(game.reduced_index_list), game.dim))
-    p1.Q = Q
-    p2.Q = Q
+    p1.Q = np.copy(Q)
+    p2.Q = np.copy(Q)
     epsiode_counter = 0
 
     try:
-        while epsiode_counter < 10:
-            q = p1.Q
+        while epsiode_counter < 20:
+            q = np.copy(p1.Q)
             game.episode()
             epsiode_counter += 1
-            if epsiode_counter % 1 == 0:
-                print('round',epsiode_counter)
-
+            print('round', epsiode_counter)
             Delta = np.max(abs(p1.Q - q))
             print('delta:', Delta)
-            if Delta < theta:
-                print('converged')
-                break
+
+            if epsiode_counter % 10 == 9:
+                if Delta < theta:
+                    print('converged')
+                    break
 
     except KeyboardInterrupt:
-        np.save('action_value_function.npy', Q)
+        np.save('action_value_function.npy', p1.Q)
 
     return p1.Q
 
 
-w = 2
-h = 3
-try:
-    Q = Q_learning(0.1, w, h)
-    np.save('action_value_function'+str(h)+'-'+str(w)+'.npy', Q)
-
-except KeyboardInterrupt:
-    np.save('action_value_function.npy', Q)
+w = 3
+h = 2
+Q = Q_learning(0.1, w, h)
+np.save('action_value_function'+str(h)+'-'+str(w)+'.npy', Q)
