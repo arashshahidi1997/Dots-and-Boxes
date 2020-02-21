@@ -1,6 +1,6 @@
 import numpy as np
 
-w = 2
+w = 3
 h = 3
 index_list = np.load('symmetries/index_list' + str(h) + '_' + str(w) + '.npy')
 reduced_index_list = list(set(index_list[:, 0]))
@@ -10,17 +10,18 @@ folder = 'action_value_function/'
 class Agent:
 
     def __init__(self, w, h, experience='', learning=True, alpha=0.5, gamma=0.8, epsilon=0.1, policy='e-greedy'):
+        self.num = 0
         self.w = w
         self.h = h
         self.policy = policy
         self.learning = learning
         self.wallet = 0  # sum of rewards
         self.score = 0  # score in a dots and boxes match
+        self.reward = 0
         self.action = 0  # action
         self.state = 0
         self.previous_action = 0
         self.previous_state = 0
-        self.Q = 0
 
         if experience:
             self.Q = np.load(experience)
@@ -34,35 +35,39 @@ class Agent:
 
     def choose_action(self, vector):  # epsilon-greedily
         if self.policy == 'e-greedy':
-            # print('choose action:')
+            # # print('choose action:')
             s = self.state
-            # print 'state:', self.previous_state, self.state
-            # print(s, self.Q[s], vector)
+            # # print('state:', self.previous_state, self.state)
+            # # print(s, self.Q[s], vector)
+            # print('state:', s, reduced_index_list[s])
             # print(self.Q[s])
-            if np.random.rand() < self.epsilon:
-                a_index = np.where(vector != 1)[0]
-            else:
-                a_index = np.where(self.Q[s] == np.max(self.Q[s]))[0]
+            a_index = np.where(vector != 1)[0]
+            if np.random.rand() > self.epsilon:
+                Q_max = np.max(self.Q[s])
+                Q_min = np.min(self.Q[s])
+                if Q_max != Q_min:
+                    a_index = np.where(self.Q[s] == Q_max)[0]
 
-            # print(a_index)
+            # # print(a_index)
             self.previous_action = self.action
             self.action = a_index[np.random.randint(len(a_index))]
-            # print 'action:', self.previous_action, self.action
+            # print(a_index)
+            # print('action:', self.previous_action, self.action)
 
         elif self.policy == 'random':
             a_index = np.where(vector != 1)[0]
             self.previous_action = self.action
             self.action = a_index[np.random.randint(len(a_index))]
 
-    def update_rule(self, reward, m):
+    def update_rule(self, m):
         if self.learning:
             s0 = self.previous_state
             a0 = self.previous_action
-            # print(self.Q[s0, a0])
-            # print(s0, a0)
-            self.Q[s0, a0] += self.alpha * (reward + self.gamma * m - self.Q[s0, a0])
-            # print(self.Q[s0, a0])
-            # print('next')
+            # # print(self.Q[s0, a0])
+            # # print(s0, a0)
+            self.Q[s0, a0] += self.alpha * (self.reward + self.gamma * m - self.Q[s0, a0])
+            # # print(self.Q[s0, a0])
+            # # print('next')
 
     def target(self, vector):
         return np.max(self.Q[self.state, np.where(vector != 1)])
@@ -93,6 +98,7 @@ class Game:
         for q in range(2):
             self.p[q].score = 0
             self.p[q].score = 0
+            self.p[q].reward = 0
             self.p[q].action = 0
             self.p[q].state = 0
             self.p[q].previous_action = 0
@@ -109,30 +115,30 @@ class Game:
 
     def episode(self):  # player1 and player2 play n matches of dots and boxes
         self.initialize_episode()
-        # print(self.state_array)
+        # # print(self.state_array)
 
         self.update()
-        # print(self.p[self.turn].state)
+        # # print(self.p[self.turn].state)
 
-        # print 'turn:', self.turn
+        # print('turn:', self.turn)
         self.p[self.turn].choose_action(self.vector)
         choice = self.action(self.p[self.turn].action)  # choose action
 
         self.move(choice)
-        # print(self.p[self.turn].state)
-        # print(self.state_array)
+        # # print(self.p[self.turn].state)
+        # # print(self.state_array)
 
         self.turn = 1 - self.turn
 
         self.update()
 
-        # print 'turn:', self.turn
+        # print('turn:', self.turn)
         self.p[self.turn].choose_action(self.vector)
         choice = self.action(self.p[self.turn].action)  # choose action
 
         self.move(choice)
-        # print(self.p[self.turn].state)
-        # print(self.state_array)
+        # # print(self.p[self.turn].state)
+        # # print(self.state_array)
 
         self.turn = 1 - self.turn
 
@@ -140,7 +146,7 @@ class Game:
 
             self.update()
 
-            # print 'turn:', self.turn
+            # print('turn:', self.turn)
             self.p[self.turn].choose_action(self.vector)
             choice = self.action(self.p[self.turn].action)  # choose action
             # self.info(choice)
@@ -150,26 +156,25 @@ class Game:
             # print(self.state_array)
 
             if self.terminal_state:
-                reward = self.reward()
-                if self.turn != 0:
-                    reward = -reward
+                self.reward()
 
                 m = 0
                 for turn in range(2):
-                    # # print(self.p[0].Q)
+                    # # # print(self.p[0].Q)
                     self.p[turn].previous_state = self.p[turn].state
                     self.p[turn].previous_action = self.p[turn].action
-                    self.p[turn].update_rule(reward, m)
-                    # # print(self.p[0].Q)
+                    self.p[turn].update_rule(m)
+                    # # # print(self.p[0].Q)
             else:
-                reward = 0
-                m = self.p[self.turn].target(self.vector)
+                m = 0
+                if self.p[self.turn].learning:
+                    m = self.p[self.turn].target(self.vector)
 
-                # # print(self.p[0].Q)
-                self.p[self.turn].update_rule(reward, m)
+                # # # print(self.p[0].Q)
+                self.p[self.turn].update_rule(m)
                 s0 = self.p[self.turn].previous_state
                 a0 = self.p[self.turn].previous_action
-                # # print(self.p[0].Q)
+                # # # print(self.p[0].Q)
 
                 if not self.extra_turn:
                     self.turn = 1 - self.turn
@@ -185,18 +190,20 @@ class Game:
 
         self.p[0].wallet += reward
         self.p[1].wallet -= reward
-
-        return reward
+        self.p[0].reward = reward
+        self.p[1].reward = -reward
 
     def move(self, choice):
         score = 0
         self.extra_turn = False
-        h, x, y = choice
+        o, x, y = choice
 
-        self.state_array[h][x, y] = 1  # update state
+        self.state_array[o][x, y] = 1  # update state
         self.vector = vector_form(self.state_array)
+        # print(choice)
+        # print(self.state_array)
 
-        if h == 0:
+        if o == 0:
 
             if x != 0:
                 upper = self.state_array[0][x - 1, y] == 1
@@ -236,6 +243,7 @@ class Game:
 
         if self.scored == self.total_score:
             self.terminal_state = True
+            # print('terminal')
 
         if score != 0 and not self.terminal_state:
             self.extra_turn = True
@@ -247,6 +255,7 @@ class Game:
         s = index_list[enumerate(self.vector), 0]
         self.vector = vectorize(s, self.dim)
         self.state_array = matrix_form(self.vector, self.h, self.w)
+        # print('reduced:', self.state_array)
         self.p[self.turn].previous_state = self.p[self.turn].state
         self.p[self.turn].state = reduced_index_list.index(s)
 
@@ -256,25 +265,25 @@ class Game:
         h_arr, v_arr = matrix_form(v, self.h, self.w)
 
         if np.sum(h_arr) == 1:
-            h = 0
+            o = 0
             i, j = np.where(h_arr == 1)
             x = i[0]
             y = j[0]
 
         else:
-            h = 1
+            o = 1
             i, j = np.where(v_arr == 1)
             x = i[0]
             y = j[0]
 
-        return h, x, y
+        return o, x, y
 
     def info(self, choice):
-        # print('state_array:', self.state_array)
-        # print('state_vector:', self.vector)
-        # print('scores:', self.p[0].score, self.p[1].score)
-        # print('scored:', self.scored)
-        # print('turn and action:', self.turn, self.p[self.turn].action)
+        # # print('state_array:', self.state_array)
+        # # print('state_vector:', self.vector)
+        # # print('scores:', self.p[0].score, self.p[1].score)
+        # # print('scored:', self.scored)
+        # # print('turn and action:', self.turn, self.p[self.turn].action)
         print('choice', choice)
 
 
@@ -307,52 +316,62 @@ def matrix_form(vector, h, w):
     return array_list
 
 
-def self_history_training(theta, w, h, p1, p2):
+def self_history_training(theta, w, h, p1, p2, num):
 
-    #print("Agents are ready")
+    print("Agents are ready")
     game = Game(w, h, p1, p2)
 
     if p1.learning:
         learner = p1
+        opp = p2
+        turn = 'first'
+
     else:
         learner = p2
+        opp = p1
+        turn = 'second'
 
-    # # print(index_list)
-    # # print(len(reduced_index_list))
-    # print("Game is set")
+    # print(index_list)
+    # print(len(reduced_index_list))
+    print("Game is set")
 
-    epsiode_counter = 0
+    episode_counter = 0
 
     k = 0
+    learner_wallet = []
     while True:
         q = np.copy(learner.Q)
         game.episode()
-        epsiode_counter += 1
-        # print('round', epsiode_counter)
+        learner_wallet.append(learner.wallet)
+        episode_counter += 1
+        # print('round', episode_counter)
         Delta = np.max(abs(learner.Q - q))
         # print('delta:', Delta)
 
         if Delta < theta:
             k += 1
             if k == 10:
-                # print('converged')
+                print('converged')
+                print('rounds:', episode_counter)
                 break
 
+    np.save(turn + '_learner' + str(num) + 'against_opp' + str(opp.num), np.array(learner_wallet))
 
-num = 1
-exp0 = ''
-exp1 = folder + 'sh' + str(num) + '-action_value_function' + str(h) + '-' + str(w) + '.npy'
 
-agents = [Agent(w, h, experience=exp0, learning=False)]
+exp1 = folder + 'sh1-action_value_function' + str(h) + '-' + str(w) + '.npy'
+
+agents = [Agent(w, h, learning=False, epsilon=0.5)]
 agent = Agent(w, h, experience=exp1, learning=True)
 
 for num in range(1, 20):
 
     for opponent in agents:
-        self_history_training(0.0001, w, h, opponent, agent)
-        self_history_training(0.0001, w, h, agent, opponent)
+        self_history_training(0.01, w, h, opponent, agent, num)
+        self_history_training(0.01, w, h, agent, opponent, num)
 
-    new_opponent = Agent(w, h, experience=exp1, learning=False)
+    new_opponent = Agent(w, h, experience=exp1, learning=False, epsilon=0.5)
+    new_opponent.num = num
+
     agents.append(new_opponent)
     new_file = 'sh'+str(num+1)+'-action_value_function' + str(h) + '-' + str(w) + '.npy'
     np.save(folder + new_file, agent.Q)
