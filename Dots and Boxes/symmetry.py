@@ -136,8 +136,8 @@ while s_list:
 
 np.save('symmetries/index_list' + str(h) + '_' + str(w) + '.npy', index_list)
 
-# print(index_list)
-# k = 0
-# for i in reduced_index_list:
-#     print(k, ':', vectorize(i, (w-1)*h + (h-1)*w))
-#     k += 1
+print(index_list)
+k = 0
+for i in reduced_index_list:
+    print(k, ':', vectorize(i, (w-1)*h + (h-1)*w))
+    k += 1
