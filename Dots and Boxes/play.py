@@ -4,19 +4,19 @@ import pygame
 import time
 
 w = 3
-h = 2
+h = 3
 index_list = np.load('symmetries/index_list' + str(h) + '_' + str(w) + '.npy')
 reduced_index_list = list(set(index_list[:, 0]))
 
 
 class Agent:
 
-    def __init__(self, w, h, experience='', agent=True, alpha=0.5, gamma=0.8, epsilon=0.1, policy='e-greedy'):
+    def __init__(self, w, h, experience='', agent=True, learning=True, alpha=0.5, gamma=0.8, epsilon=0.1, policy='e-greedy'):
         self.agent = agent
         self.w = w
         self.h = h
         self.policy = policy
-
+        self.learning = learning
         self.wallet = 0  # sum of rewards
         self.score = 0  # score in a dots and boxes match
         self.action = 0  # action
@@ -26,12 +26,12 @@ class Agent:
         self.Q = 0
         self.reduced_index_list = 0
 
-        if agent:
-            if experience:
-                self.Q = np.load(experience)
+        if experience:
+            self.Q = np.load(experience)
 
-            else:
-                self.Q = 0
+        elif not agent:
+            self.learning = False
+            self.Q = 0
 
         self.alpha = alpha
         self.gamma = gamma
@@ -41,7 +41,7 @@ class Agent:
         print('choose action:')
         if self.policy == 'e-greedy':
             s = self.state
-            print 'state:', self.previous_state, self.state
+            print('state:', self.previous_state, self.state)
             print(s, self.Q[s], reduced_vector)
             self.Q[s, np.where(reduced_vector == 1)] = -10
             print(self.Q[s])
@@ -53,7 +53,7 @@ class Agent:
             print(a_index)
             self.previous_action = self.action
             self.action = a_index[np.random.randint(len(a_index))]
-            print 'action:', self.previous_action, self.action
+            print('action:', self.previous_action, self.action)
 
         elif self.policy == 'random':
             a_index = np.where(reduced_vector != 1)[0]
@@ -61,13 +61,14 @@ class Agent:
             self.action = a_index[np.random.randint(len(a_index))]
 
     def update_rule(self, reward, m):
-        s0 = self.previous_state
-        a0 = self.previous_action
-        print(self.Q[s0, a0])
-        print(s0, a0)
-        self.Q[s0, a0] += self.alpha * (reward + self.gamma * m - self.Q[s0, a0])
-        print(self.Q[s0, a0])
-        print('next')
+        if self.learning:
+            s0 = self.previous_state
+            a0 = self.previous_action
+            print(self.Q[s0, a0])
+            print(s0, a0)
+            self.Q[s0, a0] += self.alpha * (reward + self.gamma * m - self.Q[s0, a0])
+            print(self.Q[s0, a0])
+            print('next')
 
     def target(self, reduced_vector):
         return np.max(self.Q[self.state, np.where(reduced_vector != 1)])
@@ -92,9 +93,6 @@ class Game:
 
         self.terminal_vector = np.ones(self.dim, dtype='int')
         self.terminal_index = enumerate(self.terminal_vector)
-        self.index_list = np.ndarray((self.terminal_index + 1, 2), dtype='int')
-        self.index()
-        self.reduced_index_list = list(set(self.index_list[:, 0]))
         self.reduced_vector = vectorize(0, self.dim)
 
         self.boxes = 2 * np.ones((h-1, w-1), dtype='int')
@@ -129,14 +127,13 @@ class Game:
         self.initialize_episode()
         print(self.state)
 
-        t0 = self.update()
-        print(self.p[self.turn].state)
-
         if not self.p[self.turn].agent:
             choice = self.board.choose_action()
 
         else:
-            print 'turn:', self.turn
+            t0 = self.update()
+            print(self.p[self.turn].state)
+            print('turn:', self.turn)
             self.p[self.turn].choose_action(self.reduced_vector)
             choice = self.action(self.p[self.turn].action, t0)  # choose action
 
@@ -150,12 +147,12 @@ class Game:
 
         self.turn = 1 - self.turn
 
-        t1 = self.update()
         if not self.p[self.turn].agent:
             choice = self.board.choose_action()
 
         else:
-            print 'turn:', self.turn
+            t1 = self.update()
+            print('turn:', self.turn)
             self.p[self.turn].choose_action(self.reduced_vector)
             choice = self.action(self.p[self.turn].action, t1)  # choose action
 
@@ -169,9 +166,8 @@ class Game:
 
         self.turn = 1 - self.turn
 
-        t2 = self.update()
-
         while not self.terminal_state:
+
             if self.graphics:
                 self.board.draw()
                 time.sleep(1)
@@ -180,7 +176,8 @@ class Game:
                 choice = self.board.choose_action()
 
             else:
-                print 'turn:', self.turn
+                t2 = self.update()
+                print('turn:', self.turn)
                 self.p[self.turn].choose_action(self.reduced_vector)
                 choice = self.action(self.p[self.turn].action, t2)  # choose action
                 # self.info(choice)
@@ -195,31 +192,27 @@ class Game:
                     reward = -reward
 
                 m = 0
+                for turn in range(2):
+                    # # print(self.p[0].Q)
+                    self.p[turn].previous_state = self.p[turn].state
+                    self.p[turn].previous_action = self.p[turn].action
+                    self.p[turn].update_rule(reward, m)
+                    # # print(self.p[0].Q)
 
-            elif self.p[self.turn].agent:
+            else:
+                m = 0
                 reward = 0
-                m = self.p[self.turn].target(self.reduced_vector)
+                if self.p[self.turn].learning:
+                    m = self.p[self.turn].target(self.reduced_vector)
 
-            if self.p[self.turn].agent:
-                ## print(self.p[0].Q)
+                # # print(self.p[0].Q)
                 self.p[self.turn].update_rule(reward, m)
                 s0 = self.p[self.turn].previous_state
                 a0 = self.p[self.turn].previous_action
-                self.p[1 - self.turn].Q[s0, a0] = self.p[self.turn].Q[s0, a0]
-                ## print(self.p[0].Q)
+                # # print(self.p[0].Q)
 
-            if not self.extra_turn:
-                self.turn = 1 - self.turn
-
-            t2 = self.update()
-
-        if self.p[self.turn].agent:
-            ## print(self.p[0].Q)
-            self.p[self.turn].update_rule(reward, m)
-            s0 = self.p[self.turn].previous_state
-            a0 = self.p[self.turn].previous_action
-            self.p[1 - self.turn].Q[s0, a0] = self.p[self.turn].Q[s0, a0]
-            ## print(self.p[0].Q)
+                if not self.extra_turn:
+                    self.turn = 1 - self.turn
 
     def reward(self):
         reward = 0
@@ -686,5 +679,12 @@ def random_opponent(theta, w, h):
     np.save('r-action_value_function' + str(h) + '-' + str(w) + '.npy', Q)
 
 
-self_training(0.1, w, h)
+p1 = Agent(w, h, agent=False)
+p2 = Agent(w, h, experience='action_value_function/sh2-action_value_function3-3.npy', learning=False)
+# print("Agents are ready")
+game = Game(w, h, p1, p2)
+# print(game.index_list)
+# print(len(game.reduced_index_list))
+# print("Game is set")
 
+game.episode()
